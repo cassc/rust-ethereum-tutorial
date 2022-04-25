@@ -11,3 +11,7 @@ ethers = { git = "https://github.com/cassc/ethers-rs", default-features = false,
 eyre = "0.6.8"
 hex = "0.4.3"
 tokio = { version = "1.17.0", features = ["full"] }
+
+[[bin]]
+name = "part-1"
+path="src/simple_transactions.rs"
