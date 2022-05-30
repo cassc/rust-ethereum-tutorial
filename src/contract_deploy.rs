@@ -13,7 +13,7 @@ struct Args {
 
 use ethers::prelude::{ConfigurableArtifacts, Project, ProjectCompileOutput, ProjectPathsConfig};
 use eyre::Result;
-use tracing::{info, instrument, Level};
+use tracing::{instrument, Level};
 
 fn enable_tracing() -> Result<()> {
     let collector = tracing_subscriber::fmt()
@@ -24,24 +24,23 @@ fn enable_tracing() -> Result<()> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     enable_tracing()?;
 
     let args = Args::parse();
     let root: String = args.contract_root;
 
-    let project = compile(&root).await?;
+    let project = compile(&root)?;
 
     println!("Project compilation success: {project:?}");
 
-    print_project(project).await?;
+    print_project(project)?;
 
     Ok(())
 }
 
 #[instrument]
-pub async fn compile(root: &str) -> Result<ProjectCompileOutput<ConfigurableArtifacts>> {
+pub fn compile(root: &str) -> Result<ProjectCompileOutput<ConfigurableArtifacts>> {
     // soldity project root
     let root = PathBuf::from(root);
     if !root.exists() {
@@ -62,18 +61,18 @@ pub async fn compile(root: &str) -> Result<ProjectCompileOutput<ConfigurableArti
 
     // the async wrapper is needed to to make a blocking client async
     // See discussion here https://githubhot.com/index.php/repo/seanmonstar/reqwest/issues/1450
-    let output = async { project.compile() }.await?;
+    let output = project.compile()?;
     if output.has_compiler_errors() {
         Err(eyre!(
             "Compiling solidity project failed: {:?}",
             output.output().errors
         ))
     } else {
-        Ok(output.clone())
+        Ok(output)
     }
 }
 
-pub async fn print_project(project: ProjectCompileOutput<ConfigurableArtifacts>) -> Result<()> {
+pub fn print_project(project: ProjectCompileOutput<ConfigurableArtifacts>) -> Result<()> {
     let artifacts = project.into_artifacts();
     let mut contracts = Vec::new();
     for (id, artifact) in artifacts {
