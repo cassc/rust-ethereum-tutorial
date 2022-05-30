@@ -13,7 +13,7 @@ struct Args {
 
 use ethers::prelude::{ConfigurableArtifacts, Project, ProjectCompileOutput, ProjectPathsConfig};
 use eyre::Result;
-use tracing::{info, instrument, Level};
+use tracing::{instrument, Level};
 
 fn enable_tracing() -> Result<()> {
     let collector = tracing_subscriber::fmt()
@@ -32,8 +32,6 @@ async fn main() -> Result<()> {
     let root: String = args.contract_root;
 
     let project = compile(&root).await?;
-
-    println!("Project compilation success: {project:?}");
 
     print_project(project).await?;
 
@@ -57,6 +55,7 @@ pub async fn compile(root: &str) -> Result<ProjectCompileOutput<ConfigurableArti
     let project = Project::builder()
         .paths(paths)
         .ephemeral()
+        .set_auto_detect(true)
         .no_artifacts()
         .build()?;
 
