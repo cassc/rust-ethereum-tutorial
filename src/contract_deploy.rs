@@ -1,19 +1,34 @@
-use std::path::PathBuf;
-
+use std::{default, path::PathBuf};
+mod ganache_wallet;
 use clap::Parser;
+use ethers_providers::Middleware;
 use eyre::{eyre, ContextCompat};
+use ganache_wallet::GanacheAccount;
+use hex::ToHex;
+
+use ethers::prelude::{
+    Address, ConfigurableArtifacts, Project, ProjectCompileOutput, ProjectPathsConfig, Signer,
+    TransactionRequest, U256,
+};
+use eyre::Result;
+use tracing::{instrument, Level};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// Directory holding our contracts
+    #[clap(short, long, required = true)]
+    project_root: String,
+    /// Set to 1 to enable printing tracing
     #[clap(short, long)]
-    contract_root: String,
+    tracing: bool,
+    /// Ganache argument: Fork anther blockchain
+    #[clap(short, long)]
+    fork: Option<String>,
+    /// Ganache argument: Unlock an address
+    #[clap(short, long)]
+    unlock: Option<String>,
 }
-
-use ethers::prelude::{ConfigurableArtifacts, Project, ProjectCompileOutput, ProjectPathsConfig};
-use eyre::Result;
-use tracing::{instrument, Level};
 
 fn enable_tracing() -> Result<()> {
     let collector = tracing_subscriber::fmt()
@@ -26,14 +41,113 @@ fn enable_tracing() -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    enable_tracing()?;
-
+    // Load command line arguments
     let args = Args::parse();
-    let root: String = args.contract_root;
+    let root: String = args.project_root;
 
+    // Enable printing tracing for EVM ethereum libraries
+    if args.tracing {
+        enable_tracing()?;
+    }
+
+    // Compile project
     let project = compile(&root).await?;
 
-    print_project(project).await?;
+    // Print compiled project information
+    // print_project(project.clone()).await?;
+
+    // Create a ganache instance using some seed phrases
+    let seed = "kiss flower cover latin day egg tree fabric acoustic cheap energy usual".into();
+    let mut ganache_args: Vec<String> = Vec::new();
+    if let Some(fork) = args.fork {
+        ganache_args.push("-f".into());
+        ganache_args.push(fork.into());
+    }
+
+    let mut unlocked_address = None;
+
+    if let Some(ref unlock) = args.unlock {
+        ganache_args.push("-u".into());
+        ganache_args.push(unlock.into());
+        unlocked_address = Some(unlock.parse::<Address>()?);
+    }
+
+    let ganache_account = {
+        if ganache_args.len() > 0 {
+            GanacheAccount::new_from_seed_with_http_args(seed, ganache_args).await?
+        } else {
+            GanacheAccount::new_from_seed_with_http(seed).await?
+        }
+    };
+
+    // Get default wallet in the account and query balance
+    let wallet = ganache_account.get_default_wallet()?;
+
+    let balance = ganache_account
+        .provider
+        .get_balance(wallet.address(), None)
+        .await?;
+
+    println!(
+        "Wallet first address {} balance: {}",
+        wallet.address().encode_hex::<String>(),
+        balance
+    );
+
+    let token_impl_contract_name = "BUSDImplementation";
+    let proxy_contract_name = "AdminUpgradeabilityProxy";
+
+    // Find and deploy the token implementation contract
+    let contract = project
+        .find(token_impl_contract_name)
+        .context("Contract not found")?
+        .clone();
+    let token_impl_contract = ganache_account.deploy_contract(contract, ()).await?;
+
+    println!(
+        "BUSDImpl contract address {}",
+        token_impl_contract.address().encode_hex::<String>()
+    );
+
+    // Find and deploy the proxy contract
+    let contract = project
+        .find(proxy_contract_name)
+        .context("Contract not found")?
+        .clone();
+
+    // let constructor = contract.into_parts().0.context("Failed to get contract parts")?.constructor?;
+    let params = (token_impl_contract.address(),);
+    let proxy_contract = ganache_account.deploy_contract(contract, params).await?;
+
+    println!(
+        "BUSD contract address {}",
+        proxy_contract.address().encode_hex::<String>()
+    );
+
+    if let Some(ref unlocked_address) = unlocked_address {
+        let gas_price = U256::from(20_000_000_000u128);
+        let tx = TransactionRequest::pay(wallet.address(), U256::from(99999u64))
+            .from(*unlocked_address)
+            .gas_price(gas_price);
+
+        let _receipt = ganache_account
+            .provider
+            .send_transaction(tx, None)
+            .await?
+            .log_msg("Pending transfer")
+            .confirmations(1) // number of confirmations required
+            .await?
+            .context("Missing receipt")?;
+
+        println!(
+            "Balance of {} {}",
+            wallet.address().encode_hex::<String>(),
+            ganache_account
+                .provider
+                .get_balance(wallet.address(), None)
+                .await?
+        );
+    }
 
     Ok(())
 }
