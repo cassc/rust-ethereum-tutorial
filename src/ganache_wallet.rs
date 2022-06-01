@@ -22,7 +22,7 @@ pub struct GanacheAccount<T: Clone + JsonRpcClient> {
 
 #[allow(dead_code)]
 impl GanacheAccount<Http> {
-    pub async fn new_from_seed_with_http(seed_words: String) -> Result<Self> {
+    pub async fn new_from_seed(seed_words: String) -> Result<Self> {
         let ganache = Ganache::new().mnemonic(seed_words).spawn();
         let provider = Provider::try_from(ganache.endpoint())?;
         let endpoint = ganache.endpoint();
@@ -35,10 +35,7 @@ impl GanacheAccount<Http> {
         })
     }
 
-    pub async fn new_from_seed_with_http_args(
-        seed_words: String,
-        args: Vec<String>,
-    ) -> Result<Self> {
+    pub async fn new_from_seed_with_args(seed_words: String, args: Vec<String>) -> Result<Self> {
         let ganache = Ganache::new().args(args).mnemonic(seed_words).spawn();
         let provider = Provider::try_from(ganache.endpoint())?;
         let endpoint = ganache.endpoint();
@@ -52,8 +49,9 @@ impl GanacheAccount<Http> {
     }
 }
 
+#[allow(dead_code)]
 impl GanacheAccount<Ws> {
-    pub async fn new_from_seed_with_ws(seed_words: String) -> Result<Self> {
+    pub async fn new_from_seed(seed_words: String) -> Result<Self> {
         let ganache = Ganache::new().mnemonic(seed_words).spawn();
         let provider = Provider::connect(ganache.ws_endpoint()).await?;
         let endpoint = ganache.endpoint();

@@ -1,7 +1,7 @@
-use std::{default, path::PathBuf};
+use std::path::PathBuf;
 mod ganache_wallet;
 use clap::Parser;
-use ethers_providers::Middleware;
+use ethers_providers::{Http, Middleware};
 use eyre::{eyre, ContextCompat};
 use ganache_wallet::GanacheAccount;
 use hex::ToHex;
@@ -19,7 +19,7 @@ struct Args {
     /// Directory holding our contracts
     #[clap(short, long, required = true)]
     project_root: String,
-    /// Set to 1 to enable printing tracing
+    /// Set to 1 to enable tracing
     #[clap(short, long)]
     tracing: bool,
     /// Ganache argument: Fork anther blockchain
@@ -73,10 +73,10 @@ async fn main() -> Result<()> {
     }
 
     let ganache_account = {
-        if ganache_args.len() > 0 {
-            GanacheAccount::new_from_seed_with_http_args(seed, ganache_args).await?
+        if ganache_args.is_empty() {
+            GanacheAccount::<Http>::new_from_seed(seed).await?
         } else {
-            GanacheAccount::new_from_seed_with_http(seed).await?
+            GanacheAccount::<Http>::new_from_seed_with_args(seed, ganache_args).await?
         }
     };
 
@@ -116,8 +116,10 @@ async fn main() -> Result<()> {
         .clone();
 
     // let constructor = contract.into_parts().0.context("Failed to get contract parts")?.constructor?;
-    let params = (token_impl_contract.address(),);
-    let proxy_contract = ganache_account.deploy_contract(contract, params).await?;
+    let constructor_args = (token_impl_contract.address(),);
+    let proxy_contract = ganache_account
+        .deploy_contract(contract, constructor_args)
+        .await?;
 
     println!(
         "BUSD contract address {}",
@@ -125,7 +127,7 @@ async fn main() -> Result<()> {
     );
 
     if let Some(ref unlocked_address) = unlocked_address {
-        let gas_price = U256::from(20_000_000_000u128);
+        let gas_price = U256::from(40_000_000_000u128);
         let tx = TransactionRequest::pay(wallet.address(), U256::from(99999u64))
             .from(*unlocked_address)
             .gas_price(gas_price);
@@ -173,9 +175,7 @@ pub async fn compile(root: &str) -> Result<ProjectCompileOutput<ConfigurableArti
         .no_artifacts()
         .build()?;
 
-    // the async wrapper is needed to to make a blocking client async
-    // See discussion here https://githubhot.com/index.php/repo/seanmonstar/reqwest/issues/1450
-    let output = async { project.compile() }.await?;
+    let output = project.compile()?;
     if output.has_compiler_errors() {
         Err(eyre!(
             "Compiling solidity project failed: {:?}",
