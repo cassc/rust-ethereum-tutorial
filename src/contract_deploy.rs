@@ -1,9 +1,9 @@
 use std::path::PathBuf;
-mod ganache_wallet;
+mod ganache_account;
 use clap::Parser;
 use ethers_providers::{Http, Middleware};
 use eyre::{eyre, ContextCompat};
-use ganache_wallet::GanacheAccount;
+use ganache_account::GanacheAccount;
 use hex::ToHex;
 
 use ethers::prelude::{

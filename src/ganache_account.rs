@@ -1,19 +1,15 @@
 use ethers::abi::Tokenize;
 use ethers::contract::Contract;
+use ethers::providers::{Http, Ws};
 use ethers::{
     prelude::*,
     utils::{Ganache, GanacheInstance},
 };
-
-use ethers::providers::{Http, Ws};
-
 use eyre::{ContextCompat, Result};
-
-// pub type DeployedContract<T> = Contract<Provider<T>>;
 
 pub type SignerDeployedContract<T> = Contract<SignerMiddleware<Provider<T>, LocalWallet>>;
 
-pub struct GanacheAccount<T: Clone + JsonRpcClient> {
+pub struct GanacheAccount<T> {
     pub ganache: GanacheInstance,
     pub chain_id: u64,
     pub endpoint: String,
