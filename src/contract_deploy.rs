@@ -28,6 +28,9 @@ struct Args {
     /// Ganache argument: Unlock an address
     #[clap(short, long)]
     unlock: Option<String>,
+    /// Ganache argument: gas price
+    #[clap(short, long)]
+    gas_price: Option<u32>,
 }
 
 fn enable_tracing() -> Result<()> {
@@ -62,6 +65,11 @@ async fn main() -> Result<()> {
     if let Some(fork) = args.fork {
         ganache_args.push("-f".into());
         ganache_args.push(fork.into());
+    }
+
+    if let Some(gas_price) = args.gas_price {
+        ganache_args.push("-g".into());
+        ganache_args.push(gas_price.to_string());
     }
 
     let mut unlocked_address = None;
@@ -156,26 +164,29 @@ async fn main() -> Result<()> {
 
 #[instrument]
 pub async fn compile(root: &str) -> Result<ProjectCompileOutput<ConfigurableArtifacts>> {
-    // soldity project root
+    // Create path from string and check if the path exists
     let root = PathBuf::from(root);
     if !root.exists() {
         return Err(eyre!("Project root {root:?} does not exists!"));
     }
 
+    // Configure `root` as our project root
     let paths = ProjectPathsConfig::builder()
         .root(&root)
         .sources(&root)
         .build()?;
 
-    // get the solc project instance using the paths above
+    // Create a solc project instance for compilation
     let project = Project::builder()
         .paths(paths)
-        .ephemeral()
-        .set_auto_detect(true)
+        .set_auto_detect(true) // auto detect solc version from solidity source code
         .no_artifacts()
         .build()?;
 
+    // Compile project
     let output = project.compile()?;
+
+    // Check for compilation errors
     if output.has_compiler_errors() {
         Err(eyre!(
             "Compiling solidity project failed: {:?}",
@@ -188,13 +199,12 @@ pub async fn compile(root: &str) -> Result<ProjectCompileOutput<ConfigurableArti
 
 pub async fn print_project(project: ProjectCompileOutput<ConfigurableArtifacts>) -> Result<()> {
     let artifacts = project.into_artifacts();
-    let mut contracts = Vec::new();
     for (id, artifact) in artifacts {
         let name = id.name;
         let abi = artifact.abi.context("No ABI found for artificat {name}")?;
 
+        println!("{}", "=".repeat(80));
         println!("CONTRACT: {:?}", name);
-        contracts.push(name);
 
         let contract = &abi.abi;
         let functions = contract.functions();
@@ -209,7 +219,7 @@ pub async fn print_project(project: ProjectCompileOutput<ConfigurableArtifacts>)
         for func in functions {
             let name = &func.name;
             let params = &func.inputs;
-            println!("FUNCTION {name} {params:?}");
+            println!("FUNCTION  {name} {params:?}");
         }
     }
     Ok(())

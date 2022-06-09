@@ -12,7 +12,6 @@ pub type SignerDeployedContract<T> = Contract<SignerMiddleware<Provider<T>, Loca
 pub struct GanacheAccount<T> {
     pub ganache: GanacheInstance,
     pub chain_id: u64,
-    pub endpoint: String,
     pub provider: Provider<T>,
 }
 
@@ -21,12 +20,10 @@ impl GanacheAccount<Http> {
     pub async fn new_from_seed(seed_words: String) -> Result<Self> {
         let ganache = Ganache::new().mnemonic(seed_words).spawn();
         let provider = Provider::try_from(ganache.endpoint())?;
-        let endpoint = ganache.endpoint();
         let chain_id = provider.get_chainid().await?.as_u64();
         Ok(GanacheAccount {
             ganache,
             chain_id,
-            endpoint,
             provider,
         })
     }
@@ -34,12 +31,10 @@ impl GanacheAccount<Http> {
     pub async fn new_from_seed_with_args(seed_words: String, args: Vec<String>) -> Result<Self> {
         let ganache = Ganache::new().args(args).mnemonic(seed_words).spawn();
         let provider = Provider::try_from(ganache.endpoint())?;
-        let endpoint = ganache.endpoint();
         let chain_id = provider.get_chainid().await?.as_u64();
         Ok(GanacheAccount {
             ganache,
             chain_id,
-            endpoint,
             provider,
         })
     }
@@ -50,12 +45,10 @@ impl GanacheAccount<Ws> {
     pub async fn new_from_seed(seed_words: String) -> Result<Self> {
         let ganache = Ganache::new().mnemonic(seed_words).spawn();
         let provider = Provider::connect(ganache.ws_endpoint()).await?;
-        let endpoint = ganache.endpoint();
         let chain_id = provider.get_chainid().await?.as_u64();
         Ok(GanacheAccount {
             ganache,
             chain_id,
-            endpoint,
             provider,
         })
     }
@@ -93,15 +86,26 @@ impl<T: 'static + Clone + JsonRpcClient> GanacheAccount<T> {
 
         // Create signer client
         let wallet = self.get_default_wallet()?.with_chain_id(self.chain_id);
-        let provider = self.provider.clone();
-        let client = SignerMiddleware::new(provider, wallet).into();
-
-        let factory = ContractFactory::new(abi.clone(), bytecode, client);
+        let client = SignerMiddleware::new(self.provider.clone(), wallet).into();
 
         // Deploy contract
+        let factory = ContractFactory::new(abi.clone(), bytecode, client);
         let mut deployer = factory.deploy(constructor_args)?;
-        deployer.tx.set_gas::<U256>(20_000_000.into()); // 10 times of default value
-        deployer.tx.set_gas_price::<U256>(42_000_000_000u128.into()); // 2 times of default value
+        let block = self
+            .provider
+            .clone()
+            .get_block(BlockNumber::Latest)
+            .await?
+            .context("Failed to get latest block")?;
+
+        let gas_price = block
+            .next_block_base_fee()
+            .context("Failed to get the next block base fee")?;
+        // let gas_limit = block.gas_limit;
+
+        // We can also manually set the gas limit
+        // deployer.tx.set_gas::<U256>(gas_limit);
+        deployer.tx.set_gas_price::<U256>(gas_price);
         let contract = deployer.clone().legacy().send().await?;
         Ok(contract)
     }
