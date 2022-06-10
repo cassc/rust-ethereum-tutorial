@@ -1,100 +1,46 @@
-use std::path::PathBuf;
-mod ganache_account;
-use clap::Parser;
-use ethers_providers::{Http, Middleware};
-use eyre::{eyre, ContextCompat};
-use ganache_account::GanacheAccount;
-use hex::ToHex;
-
+use ethers::contract::Contract;
 use ethers::prelude::{
-    Address, ConfigurableArtifacts, Project, ProjectCompileOutput, ProjectPathsConfig, Signer,
-    TransactionRequest, U256,
+    BlockNumber, ConfigurableArtifacts, ContractFactory, LocalWallet, Project,
+    ProjectCompileOutput, ProjectPathsConfig, Signer, SignerMiddleware, U256,
 };
+use ethers::utils::Ganache;
+use ethers_providers::{Middleware, Provider};
+use ethers_solc::Artifact;
 use eyre::Result;
-use tracing::{instrument, Level};
+use eyre::{eyre, ContextCompat};
+use hex::ToHex;
+use std::path::PathBuf;
+use std::time::Duration;
 
-#[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    /// Directory holding our contracts
-    #[clap(short, long, required = true)]
-    project_root: String,
-    /// Set to 1 to enable tracing
-    #[clap(short, long)]
-    tracing: bool,
-    /// Ganache argument: Fork anther blockchain
-    #[clap(short, long)]
-    fork: Option<String>,
-    /// Ganache argument: Unlock an address
-    #[clap(short, long)]
-    unlock: Option<String>,
-    /// Ganache argument: gas price
-    #[clap(short, long)]
-    gas_price: Option<u32>,
-}
-
-fn enable_tracing() -> Result<()> {
-    let collector = tracing_subscriber::fmt()
-        .with_max_level(Level::TRACE)
-        .finish();
-
-    tracing::subscriber::set_global_default(collector)?;
-    Ok(())
-}
+pub type SignerDeployedContract<T> = Contract<SignerMiddleware<Provider<T>, LocalWallet>>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load command line arguments
-    let args = Args::parse();
-    let root: String = args.project_root;
+    // Spawn a ganache instance
+    let mnemonic = "gas monster ski craft below illegal discover limit dog bundle bus artefact";
+    let ganache = Ganache::new().mnemonic(mnemonic).spawn();
+    println!("HTTP Endpoint: {}", ganache.endpoint());
 
-    // Enable printing tracing for EVM ethereum libraries
-    if args.tracing {
-        enable_tracing()?;
-    }
+    // Get the first wallet managed by ganache
+    let wallet: LocalWallet = ganache.keys()[0].clone().into();
+    let first_address = wallet.address();
+    println!(
+        "Wallet first address: {}",
+        first_address.encode_hex::<String>()
+    );
 
-    // Compile project
-    let project = compile(&root).await?;
+    // A provider is an Ethereum JsonRPC client
+    let provider = Provider::try_from(ganache.endpoint())?.interval(Duration::from_millis(10));
+    let chain_id = provider.get_chainid().await?.as_u64();
+    println!("Ganache started with chain_id {chain_id}");
+
+    // Compile solidity project
+    let project = compile("examples/").await?;
 
     // Print compiled project information
-    // print_project(project.clone()).await?;
+    print_project(project.clone()).await?;
 
-    // Create a ganache instance using some seed phrases
-    let seed = "kiss flower cover latin day egg tree fabric acoustic cheap energy usual".into();
-    let mut ganache_args: Vec<String> = Vec::new();
-    if let Some(fork) = args.fork {
-        ganache_args.push("-f".into());
-        ganache_args.push(fork.into());
-    }
-
-    if let Some(gas_price) = args.gas_price {
-        ganache_args.push("-g".into());
-        ganache_args.push(gas_price.to_string());
-    }
-
-    let mut unlocked_address = None;
-
-    if let Some(ref unlock) = args.unlock {
-        ganache_args.push("-u".into());
-        ganache_args.push(unlock.into());
-        unlocked_address = Some(unlock.parse::<Address>()?);
-    }
-
-    let ganache_account = {
-        if ganache_args.is_empty() {
-            GanacheAccount::<Http>::new_from_seed(seed).await?
-        } else {
-            GanacheAccount::<Http>::new_from_seed_with_args(seed, ganache_args).await?
-        }
-    };
-
-    // Get default wallet in the account and query balance
-    let wallet = ganache_account.get_default_wallet()?;
-
-    let balance = ganache_account
-        .provider
-        .get_balance(wallet.address(), None)
-        .await?;
+    let balance = provider.get_balance(wallet.address(), None).await?;
 
     println!(
         "Wallet first address {} balance: {}",
@@ -102,67 +48,55 @@ async fn main() -> Result<()> {
         balance
     );
 
-    let token_impl_contract_name = "BUSDImplementation";
-    let proxy_contract_name = "AdminUpgradeabilityProxy";
+    let contract_name = "BUSDImplementation";
 
-    // Find and deploy the token implementation contract
+    // Find the contract to be deployed
     let contract = project
-        .find(token_impl_contract_name)
+        .find(contract_name)
         .context("Contract not found")?
         .clone();
-    let token_impl_contract = ganache_account.deploy_contract(contract, ()).await?;
+
+    // We'll create a transaction which will include code for deploying the contract
+    // Get ABI and contract byte, these are required for contract deployment
+    let (abi, bytecode, _) = contract.into_parts();
+    let abi = abi.context("Missing abi from contract")?;
+    let bytecode = bytecode.context("Missing bytecode from contract")?;
+
+    // Create signer client
+    let wallet = wallet.with_chain_id(chain_id);
+    let client = SignerMiddleware::new(provider.clone(), wallet).into();
+
+    // Deploy contract
+    let factory = ContractFactory::new(abi.clone(), bytecode, client);
+    // Our contract don't need any constructor arguments, so we can use an empty tuple
+    let mut deployer = factory.deploy(())?;
+    let block = provider
+        .clone()
+        .get_block(BlockNumber::Latest)
+        .await?
+        .context("Failed to get latest block")?;
+
+    // Set a reasonable gas price to prevent our contract from being rejected by EVM
+    let gas_price = block
+        .next_block_base_fee()
+        .context("Failed to get the next block base fee")?;
+    deployer.tx.set_gas_price::<U256>(gas_price);
+
+    // We can also manually set the gas limit
+    // let gas_limit = block.gas_limit;
+    // deployer.tx.set_gas::<U256>(gas_limit);
+
+    // Create transaction and send
+    let contract = deployer.clone().legacy().send().await?;
 
     println!(
         "BUSDImpl contract address {}",
-        token_impl_contract.address().encode_hex::<String>()
+        contract.address().encode_hex::<String>()
     );
-
-    // Find and deploy the proxy contract
-    let contract = project
-        .find(proxy_contract_name)
-        .context("Contract not found")?
-        .clone();
-
-    // let constructor = contract.into_parts().0.context("Failed to get contract parts")?.constructor?;
-    let constructor_args = (token_impl_contract.address(),);
-    let proxy_contract = ganache_account
-        .deploy_contract(contract, constructor_args)
-        .await?;
-
-    println!(
-        "BUSD contract address {}",
-        proxy_contract.address().encode_hex::<String>()
-    );
-
-    if let Some(ref unlocked_address) = unlocked_address {
-        let gas_price = U256::from(40_000_000_000u128);
-        let tx = TransactionRequest::pay(wallet.address(), U256::from(99999u64))
-            .from(*unlocked_address)
-            .gas_price(gas_price);
-
-        let _receipt = ganache_account
-            .provider
-            .send_transaction(tx, None)
-            .await?
-            .log_msg("Pending transfer")
-            .confirmations(1) // number of confirmations required
-            .await?
-            .context("Missing receipt")?;
-
-        println!(
-            "Balance of {} {}",
-            wallet.address().encode_hex::<String>(),
-            ganache_account
-                .provider
-                .get_balance(wallet.address(), None)
-                .await?
-        );
-    }
 
     Ok(())
 }
 
-#[instrument]
 pub async fn compile(root: &str) -> Result<ProjectCompileOutput<ConfigurableArtifacts>> {
     // Create path from string and check if the path exists
     let root = PathBuf::from(root);
@@ -176,7 +110,7 @@ pub async fn compile(root: &str) -> Result<ProjectCompileOutput<ConfigurableArti
         .sources(&root)
         .build()?;
 
-    // Create a solc project instance for compilation
+    // Create a solc ProjectBuilder instance for compilation
     let project = Project::builder()
         .paths(paths)
         .set_auto_detect(true) // auto detect solc version from solidity source code
