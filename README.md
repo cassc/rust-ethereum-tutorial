@@ -9,3 +9,9 @@ Examples can be run from cargo:
 cargo run --bin part-[n]
 ```
 
+To run example for part-3:
+
+``` bash
+# Please replace this with your token
+cargo run --bin part-3 -- -f 'https://mainnet.infura.io/v3/36fd3e30e77e47ba9034d2605a11ec8a@15028994' -u 0x5041ed759dd4afc3a72b8192c143f72f4724081a
+```
