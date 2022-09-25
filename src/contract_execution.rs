@@ -17,7 +17,7 @@ pub type SignerDeployedContract<T> = Contract<SignerMiddleware<Provider<T>, Loca
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Ganache argument: Fork anther blockchain
+    /// Ganache argument: Fork another blockchain
     #[clap(short, long)]
     fork: String,
     /// Ganache argument: Unlock an address
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
         format_wei(balance, 18, Some("ETH"))
     );
 
-    // the Uniswap ERC20 contract address
+    // USDT contract address
     let contract = H160::from_str("0xdac17f958d2ee523a2206206994597c13d831ec7")?;
     let client = provider.clone().with_sender(unlocked_address);
 
@@ -122,9 +122,10 @@ async fn main() -> Result<()> {
 
     // Constract a call to get the balance
     sep();
-    let fn_sig_hex = fn_sig_to_prefix("balanceOf(address)");
+    let fn_sig = "balanceOf(address)";
+    let fn_sig_encoded = fn_sig_to_prefix(fn_sig);
     let fn_args_hex = format!("{:064x}", U256::from_str_radix(&unlock, 16)?);
-    let data = hex::decode(format!("{}{}", fn_sig_hex, fn_args_hex))?;
+    let data = hex::decode(format!("{}{}", fn_sig_encoded, fn_args_hex))?;
 
     // Create a read-only contract call by getting the balance of an address:
     // To get UNI token balance for 0x1a9c8182c09f50c8318d769245bea52c32be35bc
@@ -137,7 +138,12 @@ async fn main() -> Result<()> {
     let tx = TypedTransaction::Legacy(tx);
     let resp = client.call(&tx, None).await?;
     let balance = U256::from_big_endian(resp.as_ref());
-    println!("Token balance: {}", format_wei(balance, 6, Some(&symbol)));
+    println!(
+        "{} {}: {}",
+        fn_sig,
+        unlock,
+        format_wei(balance, 6, Some(&symbol))
+    );
 
     // Create a transaction to transfer some token from
     // 0x1a9c8182c09f50c8318d769245bea52c32be35bc to some arbitrary
