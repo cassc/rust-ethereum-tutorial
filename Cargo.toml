@@ -7,10 +7,10 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "3.1.9", features = ["derive"] }
-ethers = { git = "https://github.com/gakonst/ethers-rs", rev="6b6c5115838008565d774d784262e61e01129ebb", default-features = false, features = ["legacy"] }
-ethers-core = { git = "https://github.com/gakonst/ethers-rs", rev="6b6c5115838008565d774d784262e61e01129ebb", default-features = false, features = ["legacy"] }
-ethers-solc = { git = "https://github.com/gakonst/ethers-rs", rev="6b6c5115838008565d774d784262e61e01129ebb", features = ["full"] }
-ethers-providers = { git = "https://github.com/gakonst/ethers-rs", rev="6b6c5115838008565d774d784262e61e01129ebb", features = ["ws"] }
+ethers = { git = "https://github.com/gakonst/ethers-rs", default-features = false, features = ["legacy"] }
+ethers-core = { git = "https://github.com/gakonst/ethers-rs", default-features = false, features = ["legacy"] }
+ethers-solc = { git = "https://github.com/gakonst/ethers-rs", features = ["full"] }
+ethers-providers = { git = "https://github.com/gakonst/ethers-rs" }
 eyre = "*"
 hex = "*"
 tokio = { version = "1.17.0", features = ["full"] }

@@ -1,11 +1,10 @@
 use ethers::contract::Contract;
-use ethers::prelude::{
-    BlockNumber, ConfigurableArtifacts, ContractFactory, LocalWallet, Project,
-    ProjectCompileOutput, ProjectPathsConfig, Signer, SignerMiddleware, U256,
-};
+use ethers::prelude::{BlockNumber, ContractFactory, LocalWallet, Signer, SignerMiddleware, U256};
 use ethers::utils::Ganache;
 use ethers_providers::{Middleware, Provider};
-use ethers_solc::Artifact;
+use ethers_solc::{
+    Artifact, ConfigurableArtifacts, Project, ProjectCompileOutput, ProjectPathsConfig,
+};
 use eyre::Result;
 use eyre::{eyre, ContextCompat};
 use hex::ToHex;
@@ -52,7 +51,7 @@ async fn main() -> Result<()> {
 
     // Find the contract to be deployed
     let contract = project
-        .find(contract_name)
+        .find_first(contract_name)
         .context("Contract not found")?
         .clone();
 

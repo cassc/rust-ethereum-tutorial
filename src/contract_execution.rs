@@ -1,4 +1,3 @@
-use clap::Parser;
 use ethers::contract::Contract;
 use ethers::prelude::{
     Address, BlockId, BlockNumber, LocalWallet, SignerMiddleware, TransactionRequest, H160, U256,
@@ -13,17 +12,6 @@ use std::str::FromStr;
 use std::time::Duration;
 
 pub type SignerDeployedContract<T> = Contract<SignerMiddleware<Provider<T>, LocalWallet>>;
-
-#[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    /// Ganache argument: Fork another blockchain
-    #[clap(short, long)]
-    fork: String,
-    /// Ganache argument: Unlock an address
-    #[clap(short, long)]
-    unlock: String,
-}
 
 /// Calculate prefix with function signature.
 ///
@@ -53,19 +41,16 @@ fn format_wei(bignumber: U256, decimals: u32, unit: Option<&str>) -> String {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load command line arguments
-    let args = Args::parse();
-
     let mut ganache_args: Vec<String> = Vec::new();
-    let fork = args.fork;
     ganache_args.push("-f".into());
-    ganache_args.push(fork.into());
+    ganache_args.push("https://eth.llamarpc.com".into());
+    ganache_args.push("--fork.blockNumber".into());
+    ganache_args.push("15028994".into());
     let latest_block = BlockId::Number(BlockNumber::Latest);
-
-    let unlock = args.unlock;
     ganache_args.push("-u".into());
-    ganache_args.push(unlock.clone().into());
-    let unlocked_address = unlock.clone().parse::<Address>()?;
+    let unlock = "0x5041ed759dd4afc3a72b8192c143f72f4724081a";
+    ganache_args.push("0x5041ed759dd4afc3a72b8192c143f72f4724081a".into());
+    let unlocked_address = unlock.parse::<Address>()?;
 
     let ganache = Ganache::new().args(ganache_args).spawn();
 
@@ -153,9 +138,12 @@ async fn main() -> Result<()> {
     let fn_sig_hex = fn_sig_to_prefix("transfer(address,uint256)");
     let amount = U256::from_dec_str("845044608000000")?;
     let fn_args_hex = format!("{:0>64}{:064x}", recipient.encode_hex::<String>(), amount);
+    let tx_data = format!("{}{}", fn_sig_hex, fn_args_hex);
     println!("fn_sig_hex {}", fn_sig_hex);
     println!("fn_args_hex {}", fn_args_hex);
-    let data = hex::decode(format!("{}{}", fn_sig_hex, fn_args_hex))?;
+    println!("tx_data {}", tx_data);
+
+    let data = hex::decode(tx_data)?;
 
     let tx = TransactionRequest::new()
         .chain_id(chain_id)
